@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Logrecv</title>
+    <style>
+        body {
+            font-family: 'Fira Code', 'JetBrains Mono', 'Monaco', 'Courier New', monospace;
+            background-color: #0f0f0f;
+            color: #e2e8f0;
+            margin: 0;
+            padding: 0;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #terminal-output {
+            background-color: #000000;
+            border: 2px solid #4a5568;
+            padding: 1rem;
+            width: 90vw;
+            height: 90vh;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            line-height: 1.4;
+            font-size: 0.875rem;
+            scrollbar-color: #4a5568 #2d3748;
+            scrollbar-width: thin;
+        }
+
+        #terminal-output::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        #terminal-output::-webkit-scrollbar-track {
+            background: #2d3748;
+            border-radius: 10px;
+        }
+
+        #terminal-output::-webkit-scrollbar-thumb {
+            background-color: #4a5568;
+            border-radius: 10px;
+        }
+
+        .ansi-black { color: #000000; }
+        .ansi-red { color: #ff0000; }
+        .ansi-green { color: #00ff00; }
+        .ansi-yellow { color: #ffff00; }
+        .ansi-blue { color: #0000ff; }
+        .ansi-magenta { color: #ff00ff; }
+        .ansi-cyan { color: #00ffff; }
+        .ansi-white { color: #ffffff; }
+
+        .ansi-bright-black { color: #808080; }
+        .ansi-bright-red { color: #ff5555; }
+        .ansi-bright-green { color: #50fa7b; }
+        .ansi-bright-yellow { color: #f1fa8c; }
+        .ansi-bright-blue { color: #bd93f9; }
+        .ansi-bright-magenta { color: #ff79c6; }
+        .ansi-bright-cyan { color: #8be9fd; }
+        .ansi-bright-white { color: #f8f8f2; }
+
+        .ansi-bold { font-weight: bold; }
+        .ansi-italic { font-style: italic; }
+        .ansi-underline { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <div id="terminal-output"></div>
+    <script type="module">
+        import { AnsiUp } from 'https://unpkg.com/ansi_up/ansi_up.js';
+
+        const ansi_up = new AnsiUp({ use_classes: true });
+        const outputElement = document.getElementById('terminal-output');
+
+        const wsUrl = `ws://${location.host}/ws`;
+
+        let ws;
+
+        const onopen = function() {
+            outputElement.innerHTML += '<span class="ansi-bright-green">Connected</span><br>';
+            outputElement.scrollTop = outputElement.scrollHeight;
+        };
+
+        const onmessage = function(event) {
+            const html = ansi_up.ansi_to_html(event.data);
+            outputElement.innerHTML += html;
+            outputElement.scrollTop = outputElement.scrollHeight;
+        };
+
+        const onclose = function(event) {
+            const reason = event.reason || 'No reason given.';
+            const code = event.code;
+            outputElement.innerHTML += `<span class="ansi-bright-red">closed. Code: ${code}, Reason: ${reason}</span><br>`;
+            outputElement.scrollTop = outputElement.scrollHeight;
+            setTimeout(connectWebSocket, 5000);
+        };
+
+        const onerror = function(error) {
+            const errorMessage = document.createElement('div');
+            outputElement.innerHTML += '<span class="ansi-bright-red">WebSocket Error.</span><br>';
+            outputElement.scrollTop = outputElement.scrollHeight;
+            ws.close();
+        };
+
+        function connectWebSocket() {
+            outputElement.scrollTop = outputElement.scrollHeight;
+
+            try {
+                ws = new WebSocket(wsUrl);
+            } catch (error) {
+                outputElement.innerHTML += `<span class="ansi-bright-red">Failed to Connect</span><br>`;
+                outputElement.scrollTop = outputElement.scrollHeight;
+                setTimeout(connectWebSocket, 5000);
+                return;
+            }
+
+            ws.onclose = onclose;
+            ws.onerror = onerror;
+            ws.onmessage = onmessage;
+            ws.onopen = onopen;
+        }
+
+        document.addEventListener('DOMContentLoaded', connectWebSocket);
+    </script>
+</body>
+</html>
