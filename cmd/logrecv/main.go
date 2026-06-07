@@ -213,6 +213,11 @@ func runServer(address string) error {
 }
 
 func main() {
+	logPort, ok := os.LookupEnv("PORT")
+	if !ok {
+		logPort = "3333"
+	}
+
 	keylogFilename, ok := os.LookupEnv("KEYLOGFILE")
 	if !ok {
 		keylogFilename = "keylog.txt"
@@ -236,7 +241,7 @@ func main() {
 
 	addDest("stdout", stdoutDest)
 
-	if err := runServer("0.0.0.0:3333"); err != nil {
+	if err := runServer("0.0.0.0:" + logPort); err != nil {
 		slog.Error(err.Error())
 		return
 	}
