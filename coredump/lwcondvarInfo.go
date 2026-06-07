@@ -13,9 +13,8 @@ type LwcondvarInfoCondvar struct {
 	// Variable length array
 	Threads []SyncObjectsThread `bin:"len:ThreadCount"`
 
-	// Commented out fields from original:
-	// WorkAddr      uint32 // 38
-	// MutexWorkAddr uint32 // 3C
+	WorkAddr      uint32 // 38
+	MutexWorkAddr uint32 // 3C
 }
 
 // LwcondvarInfo represents the container structure for condition variable info

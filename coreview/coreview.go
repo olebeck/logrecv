@@ -47,76 +47,41 @@ func cstr(a string) string {
 }
 
 type CoreView struct {
-	cd         *coredump.Coredump
-	elf        *elf.File
-	syms       []elf.Symbol
-	cfiEntries []CFIEntry
+	cd *coredump.Coredump
 
-	textSection    *elf.Section
-	textSectionIdx int
-	dataSection    *elf.Section
-	dataSectionIdx int
-
-	textBase    uint32
 	elfFilename string
+	elf         *elf.File
+
+	syms []elf.Symbol
 }
 
 func NewCoreView(cd *coredump.Coredump, elfFilename string) (*CoreView, error) {
 	cv := &CoreView{
-		cd:          cd,
-		elfFilename: elfFilename,
-	}
-	var err error
-	cv.elf, err = elf.Open(elfFilename)
-	if err != nil {
-		return nil, err
-	}
-	for _, prog := range cv.elf.Progs {
-		if prog.Type != elf.PT_LOAD {
-			continue
-		}
-		if prog.Flags&elf.PF_X != 0 {
-			cv.textBase = uint32(prog.Vaddr)
-		}
+		cd: cd,
 	}
 
-	for i, section := range cv.elf.Sections {
-		if section.Name == ".text" {
-			cv.textSection = section
-			cv.textSectionIdx = i
-		}
-		if section.Name == ".data" {
-			cv.dataSection = section
-			cv.dataSectionIdx = i
-		}
-	}
-
-	syms, err := cv.elf.Symbols()
-	if err != nil {
-		return nil, err
-	}
-
-	for _, sym := range syms {
-		if sym.Value < cv.textSection.Addr {
-			continue
-		}
-		cv.syms = append(cv.syms, sym)
-	}
-	slices.SortFunc(cv.syms, func(a, b elf.Symbol) int {
-		return int(a.Value) - int(b.Value)
-	})
-
-	debugFrame := cv.elf.Section(".debug_frame")
-	if debugFrame != nil {
-		debugFrameData, err := debugFrame.Data()
+	if elfFilename != "" {
+		var err error
+		cv.elfFilename = elfFilename
+		cv.elf, err = elf.Open(elfFilename)
 		if err != nil {
 			return nil, err
 		}
 
-		cv.cfiEntries, err = parseCFIEntries(debugFrameData)
+		textSection := cv.elf.Section(".text")
+		syms, err := cv.elf.Symbols()
 		if err != nil {
 			return nil, err
 		}
+		for _, sym := range syms {
+			if sym.Value < textSection.Addr {
+				continue
+			}
+			cv.syms = append(cv.syms, sym)
+		}
+		slices.SortFunc(cv.syms, func(a, b elf.Symbol) int {
+			return int(a.Value) - int(b.Value)
+		})
 	}
 
 	return cv, nil
@@ -137,10 +102,21 @@ func (cv *CoreView) Display() {
 	}
 
 	cv.displayThreads()
-	cv.displayDisassembly(crashThreadID)
+	if cv.elf != nil {
+		err = cv.displayDisassembly(crashThreadID)
+		if err != nil {
+			logrus.Errorf("Error displaying disassembly: %s", err)
+		}
+	}
 	cv.displayRegisters(crashThreadID)
-	cv.displayStackContents(crashThreadID)
-	cv.displayStacktrace(crashThreadID)
+	err = cv.displayStackContents(crashThreadID)
+	if err != nil {
+		logrus.Errorf("Error displaying stack contents: %s", err)
+	}
+	err = cv.displayStacktrace(crashThreadID)
+	if err != nil {
+		logrus.Errorf("Error displaying stack trace: %s", err)
+	}
 }
 
 func (cv *CoreView) displayThreads() {
@@ -153,15 +129,14 @@ func (cv *CoreView) displayThreads() {
 	}
 }
 
-type regVal struct {
-	Name  string
-	Value uint32
-}
-
 func (cv *CoreView) displayRegisters(threadID uint32) {
 	fmt.Println("\n=== REGISTERS ===")
 	registers := cv.cd.GetThreadRegisters(threadID)
 
+	type regVal struct {
+		Name  string
+		Value uint32
+	}
 	for _, reg := range []regVal{
 		{"R0", registers.R0},
 		{"R1", registers.R1},
@@ -188,22 +163,21 @@ func (cv *CoreView) displayRegisters(threadID uint32) {
 	}
 }
 
-func (cv *CoreView) displayStackContents(threadID uint32) {
-	sp := cv.cd.GetThreadRegisters(threadID).SP
+func (cv *CoreView) displayStackContents(threadID uint32) error {
+	regs := cv.cd.GetThreadRegisters(threadID)
 	fmt.Println("\n=== STACK CONTENTS ===")
-	fmt.Printf("Stack Pointer: 0x%08x\n", sp)
+	fmt.Printf("Stack Pointer: 0x%08x\n", regs.SP)
 
-	stackSize := 256
-	stackData := cv.cd.ReadVaddr(sp, stackSize)
-	if len(stackData) == 0 {
-		logrus.Error("Could not read stack data")
-		return
+	var stackData = make([]byte, 256)
+	_, err := cv.cd.ReadAt(stackData, int64(regs.SP))
+	if err != nil {
+		return err
 	}
 
 	for i := 0; i < len(stackData); i += 16 {
 		end := min(i+16, len(stackData))
 
-		fmt.Printf("0x%08x: ", sp+uint32(i))
+		fmt.Printf("0x%08x: ", regs.SP+uint32(i))
 
 		for j := i; j < end; j += 4 {
 			if j+4 <= len(stackData) {
@@ -232,116 +206,54 @@ func (cv *CoreView) displayStackContents(threadID uint32) {
 		fmt.Println()
 	}
 	fmt.Println()
+	return nil
 }
 
-func (cv *CoreView) ReadUint32(addr uint32) (uint32, error) {
-	data := cv.cd.ReadVaddr(addr, 4)
-	if len(data) == 0 {
-		return 0, io.EOF
-	}
-	return binary.LittleEndian.Uint32(data), nil
-}
-
-func (cv *CoreView) ReadBytes(addr uint32, size int) ([]byte, error) {
-	data := cv.cd.ReadVaddr(addr, size)
-	if data == nil {
-		return nil, io.EOF
-	}
-	return data, nil
-}
-
-func (cv *CoreView) displayStacktrace(threadID uint32) {
+func (cv *CoreView) displayStacktrace(threadID uint32) error {
 	fmt.Println("\n=== STACK TRACE ===")
 	regs := cv.cd.GetThreadRegisters(threadID)
-	if cv.cfiEntries == nil {
-		fmt.Printf("No DWARF\n")
-		return
-	}
 
-	frames, err := UnwindStack(cv.cfiEntries, regs, cv, 10)
+	frames, err := UnwindStack(regs.PC, regs.SP, cv.cd)
 	if err != nil {
-		logrus.Fatal(err)
+		return err
 	}
 
 	for i, frame := range frames {
 		fmt.Printf("Frame %d:\n", i)
-		fmt.Printf("  PC: 0x%08x %s", frame.PC, cv.getFunctionName(frame.PC))
-		if frame.IsThumb {
-			fmt.Printf(" (Thumb)")
-		} else {
-			fmt.Printf(" (ARM)")
-		}
-		fmt.Printf("\n")
+		fmt.Printf("  PC: 0x%08x %s\n", frame.PC, cv.getFunctionName(frame.PC))
 		fmt.Printf("  SP: 0x%08x\n", frame.SP)
-		fmt.Printf("  LR: 0x%08x %s\n", frame.LR, cv.getFunctionName(frame.LR))
 
-		for _, reg := range []regVal{
-			{"R0", frame.Registers.R0},
-			{"R1", frame.Registers.R1},
-			{"R2", frame.Registers.R2},
-			{"R3", frame.Registers.R3},
-		} {
-			fmt.Printf("  %-3s: 0x%x\n", reg.Name, reg.Value)
+		err := cv.showDisassembly(frame.PC, fmt.Sprintf("Frame %d", i), "  ")
+		if err != nil {
+			return err
 		}
-
-		cv.showDisassembly(frame.PC, fmt.Sprintf("Frame %d", i), "  ")
 	}
+	return nil
 }
 
-func (cv *CoreView) displayDisassembly(threadID uint32) {
+func (cv *CoreView) displayDisassembly(threadID uint32) error {
 	regs := cv.cd.GetThreadRegisters(threadID)
 
 	fmt.Println("\n=== PC DISASSEMBLY ===")
 	fmt.Printf("PC: 0x%08x %s\n", regs.PC, cv.getFunctionName(regs.PC))
-	cv.showDisassembly(regs.PC, "PC", "")
+	if err := cv.showDisassembly(regs.PC, "PC", ""); err != nil {
+		return err
+	}
 	fmt.Println()
 
 	fmt.Println("\n=== LR DISASSEMBLY ===")
 	fmt.Printf("LR: 0x%08x %s\n", regs.LR, cv.getFunctionName(regs.LR))
-	cv.showDisassembly(regs.LR, "LR", "")
+	if err := cv.showDisassembly(regs.LR, "LR", ""); err != nil {
+		return err
+	}
 	fmt.Println()
+	return nil
 }
 
-func (cv *CoreView) getAddressLocation(vaddr uint32) string {
-	module, _ := cv.cd.GetModuleInfo(vaddr)
-	if module != nil {
-		return cv.getFunctionName(vaddr)
-	}
-	return ""
-}
-
-func (cv *CoreView) vaddrToElfaddr(vaddr uint32) uint32 {
-	module, segment := cv.cd.GetModuleInfo(vaddr)
-	_ = module
+func (cv *CoreView) findSymbol(vaddr uint32) string {
+	_, segment := cv.cd.GetModuleInfoByVaddr(vaddr)
 	relAddr := vaddr - segment.BaseAddr
-	elfAddr := relAddr + cv.textBase
-	return elfAddr
-}
-
-func (cv *CoreView) getFunctionName(vaddr uint32) string {
-	module, segment := cv.cd.GetModuleInfo(vaddr)
-	if module == nil {
-		return "(unknown module)"
-	}
-
-	out := ""
-	out += fmt.Sprintf("(%s)", cstr(module.Name))
-
-	relAddr := vaddr - segment.BaseAddr
-	out += fmt.Sprintf("+0x%x", relAddr)
-	if module.Fingerprint == cv.cd.ProcessInfo.Fingerprint {
-		if symbol := cv.getSymbolFromEboot(relAddr); symbol != "" {
-			out += " " + symbol
-		}
-	}
-
-	return out
-}
-
-// returns the symbol in the main eboot that is at vaddr
-func (cv *CoreView) getSymbolFromEboot(relAddr uint32) string {
-	elfAddr := relAddr + cv.textBase
-
+	elfAddr := relAddr + 0x81000000
 	for _, sym := range cv.syms {
 		size := max(sym.Size, 8)
 		if uint32(sym.Value) <= elfAddr && uint32(sym.Value+size) >= elfAddr {
@@ -353,73 +265,80 @@ func (cv *CoreView) getSymbolFromEboot(relAddr uint32) string {
 		}
 	}
 	return ""
-
-	/*
-		cmd := exec.Command("arm-vita-eabi-addr2line", "-e", cv.elfFilename, "-f", "-C", fmt.Sprintf("0x%x", elfAddr))
-		output, err := cmd.Output()
-		if err != nil {
-			return ""
-		}
-		lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-		if len(lines) >= 1 && lines[0] != "??" {
-			symbol := lines[0]
-			// Clean up the symbol name
-			if idx := strings.Index(symbol, "("); idx != -1 {
-				symbol = symbol[:idx]
-			}
-			return symbol
-		}
-		return ""
-	*/
 }
 
-func (cv *CoreView) showDisassembly(vaddr uint32, label, indent string) error {
-	fmt.Printf(indent+"Disassembly around %s (0x%08x):\n", label, vaddr)
-
-	module, segment := cv.cd.GetModuleInfo(vaddr)
+func (cv *CoreView) getAddressLocation(vaddr uint32) string {
+	module, segment := cv.cd.GetModuleInfoByVaddr(vaddr)
 	if module == nil {
-		fmt.Printf(indent+"unknown module at 0x%x\n", vaddr)
-		return nil
-	}
-	if module.Fingerprint != cv.cd.ProcessInfo.Fingerprint {
-		fmt.Print(indent + "not in main elf\n")
-		return nil
+		return "(unknown module)"
 	}
 	relAddr := vaddr - segment.BaseAddr
-	elfAddr := relAddr + cv.textBase
+	return fmt.Sprintf("(%s)+0x%x", cstr(module.Name), relAddr)
+}
 
+func (cv *CoreView) getFunctionName(vaddr uint32) string {
+	module, _ := cv.cd.GetModuleInfoByVaddr(vaddr)
+	if module == nil {
+		return "(unknown module)"
+	}
+	location := cv.getAddressLocation(vaddr)
+	if module.Fingerprint == cv.cd.ProcessInfo.Fingerprint {
+		sym := cv.findSymbol(vaddr)
+		if sym != "" {
+			return fmt.Sprintf("%s %s", location, sym)
+		}
+	}
+	return location
+}
+
+func (cv *CoreView) disassembleAround(w io.Writer, vaddr uint32, colored bool) error {
+	module, segment := cv.cd.GetModuleInfoByVaddr(vaddr)
+	if module == nil {
+		fmt.Fprintf(w, "no module at 0x%08x\n", vaddr)
+	}
+	if module.Fingerprint != cv.cd.ProcessInfo.Fingerprint {
+		fmt.Fprintf(w, "not in main elf\n")
+		return nil
+	}
+
+	relAddr := vaddr - segment.BaseAddr
+	elfAddr := relAddr + 0x81000000
 	startAddr := elfAddr - 16
-	size := 32
+	endAddr := startAddr + 32
 
+	buf := bytes.NewBuffer(nil)
 	cmd := exec.Command("arm-vita-eabi-objdump",
 		"-d", "-S",
 		"--start-address", fmt.Sprintf("0x%08x", startAddr),
-		"--stop-address", fmt.Sprintf("0x%08x", startAddr+uint32(size)),
+		"--stop-address", fmt.Sprintf("0x%08x", endAddr),
+		"--demangle",
 		cv.elfFilename,
 	)
-	b := bytes.NewBuffer(nil)
-	cmd.Stdout = b
+	cmd.Stdout = buf
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		return err
 	}
 
 	vaddrHex := fmt.Sprintf("%08x", elfAddr)
-	indent += "  "
 	for {
-		line, err := b.ReadString('\n')
+		line, err := buf.ReadString('\n')
 		if err == io.EOF {
 			break
 		}
 		if !unicode.IsDigit(rune(line[0])) {
 			continue
 		}
-
-		if strings.HasPrefix(line, vaddrHex) {
-			fmt.Printf(indent+"\033[91m%s\033[0m\n", line[:len(line)-1])
+		if strings.HasPrefix(line, vaddrHex) && colored {
+			fmt.Printf("\033[91m%s\033[0m\n", line[:len(line)-1])
 		} else {
-			fmt.Print(indent + line)
+			fmt.Print(line)
 		}
 	}
 	return nil
+}
+
+func (cv *CoreView) showDisassembly(vaddr uint32, label, indent string) error {
+	fmt.Printf(indent+"Disassembly around %s (0x%08x):\n", label, vaddr)
+	return cv.disassembleAround(os.Stdout, vaddr, true)
 }

@@ -10,7 +10,6 @@ import (
 	"reflect"
 
 	"github.com/ghostiam/binstruct"
-	"github.com/sirupsen/logrus"
 )
 
 type Coredump struct {
@@ -122,27 +121,17 @@ func (cd *Coredump) GetCrashThreadID() (uint32, error) {
 	}
 	return 0, fmt.Errorf("no crashed threads")
 }
-func (cd *Coredump) ReadVaddr(addr uint32, size int) []byte {
+func (cd *Coredump) ReadAt(p []byte, off int64) (n int, err error) {
 	for _, prog := range cd.Segments {
-		if addr >= uint32(prog.Vaddr) && addr < uint32(prog.Vaddr+prog.Memsz) {
-			offsetInSegment := addr - uint32(prog.Vaddr)
-			var buf = make([]byte, size)
-			n, err := prog.ReadAt(buf, int64(offsetInSegment))
-			if err == io.EOF && n > 0 {
-				buf = buf[:n]
-				err = nil
-			}
-			if err != nil {
-				logrus.Fatal(err)
-			}
-			return buf
+		if off >= int64(prog.Vaddr) && off < int64(prog.Vaddr+prog.Memsz) {
+			offsetInSegment := off - int64(prog.Vaddr)
+			return prog.ReadAt(p, offsetInSegment)
 		}
 	}
-	return nil
+	return 0, io.ErrUnexpectedEOF
 }
 
-// GetModuleInfo returns the module which contains the vaddr
-func (cd *Coredump) GetModuleInfo(vaddr uint32) (*ModuleInfoInfo, *ModuleInfoSegmentinfo) {
+func (cd *Coredump) GetModuleInfoByVaddr(vaddr uint32) (*ModuleInfoInfo, *ModuleInfoSegmentinfo) {
 	for _, module := range cd.ModuleInfo.Modules {
 		for _, segment := range module.Segments {
 			if segment.BaseAddr < vaddr && segment.BaseAddr+segment.MemorySize > vaddr {
@@ -163,7 +152,7 @@ func (cd *Coredump) IsInMainExecutable(vaddr uint32) bool {
 	return false
 }
 
-func (cd *Coredump) GetThread(threadID uint32) *ThreadInfoThread {
+func (cd *Coredump) GetThreadByID(threadID uint32) *ThreadInfoThread {
 	for _, thread := range cd.ThreadInfo.Records {
 		if thread.ThreadID == threadID {
 			return &thread

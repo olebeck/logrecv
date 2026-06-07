@@ -225,13 +225,13 @@ func handleLogLineCoredumpDone(remoteIP netip.Addr) {
 	}
 }
 
-func handleLogLineCoredump(remoteIP netip.Addr, line string) bool {
-	if startMatch := coredumpStartRegex.FindStringSubmatch(line); len(startMatch) > 1 {
-		handleLogLineCoredumpStart(remoteIP, startMatch)
+func handleLogLineCoredump(ll LogLine) bool {
+	if startMatch := coredumpStartRegex.FindStringSubmatch(ll.Text); len(startMatch) > 1 {
+		handleLogLineCoredumpStart(ll.Source, startMatch)
 		return false
 	}
-	if coredumpDoneRegex.MatchString(line) {
-		handleLogLineCoredumpDone(remoteIP)
+	if coredumpDoneRegex.MatchString(ll.Text) {
+		handleLogLineCoredumpDone(ll.Source)
 		return false
 	}
 	return false

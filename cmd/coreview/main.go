@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"logrecv/coredump"
 	"logrecv/coreview"
 	"os"
@@ -30,14 +29,6 @@ func main() {
 	if err != nil {
 		logrus.Fatal(err)
 	}
-
-	f, err := os.Create("test.json")
-	if err != nil {
-		logrus.Fatal(err)
-	}
-	e := json.NewEncoder(f)
-	e.SetIndent("", "  ")
-	e.Encode(cd)
 
 	cv, err := coreview.NewCoreView(cd, elfFilename)
 	if err != nil {

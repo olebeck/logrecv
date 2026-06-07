@@ -1,3 +1,9 @@
 run.sh
 keylog.txt*
 /elfs
+*.psp2dmp
+*.txt
+*.json
+__debug_bin*
+*.elf
+/logrecv

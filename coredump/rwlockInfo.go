@@ -14,9 +14,8 @@ type RwlockInfoInfo struct {
 	ReadThreadList  []SyncObjectsThread `bin:"len:ReadThreads"`
 	WriteThreadList []SyncObjectsThread `bin:"len:WriteThreads"`
 
-	// Commented out fields from original:
-	// WriteOwnerId uint32 // 3C
-	// LockCount    uint32 // 40
+	WriteOwnerId uint32 // 3C
+	LockCount    uint32 // 40
 }
 
 // RwlockInfo represents the container structure for read-write lock info

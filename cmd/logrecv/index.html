@@ -19,7 +19,6 @@
 
         #terminal-output {
             background-color: #000000;
-            border: 2px solid #4a5568;
             padding: 1rem;
             width: 90vw;
             height: 90vh;
@@ -86,7 +85,9 @@
         };
 
         const onmessage = function(event) {
-            const html = ansi_up.ansi_to_html(event.data);
+            const data = JSON.parse(event.data);
+            const id = data.Source.split(".").at(-1);
+            const html = ansi_up.ansi_to_html(`\x1b[38;5;${id}m${id.padStart(3)}\x1b[0m: ${data.Text}\n`);
             outputElement.innerHTML += html;
             outputElement.scrollTop = outputElement.scrollHeight;
         };
