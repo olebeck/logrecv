@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"log/slog"
 	"logrecv/coredump"
 	"os"
 	"os/exec"
@@ -14,7 +15,6 @@ import (
 	"unicode"
 
 	"github.com/ianlancetaylor/demangle"
-	"github.com/sirupsen/logrus"
 )
 
 var armRegNames = []string{
@@ -97,7 +97,7 @@ func (cv *CoreView) Close() error {
 func (cv *CoreView) Display() {
 	crashThreadID, err := cv.cd.GetCrashThreadID()
 	if err != nil {
-		logrus.Error(err)
+		slog.Error("GetCrashThreadID", "error", err)
 		return
 	}
 
@@ -105,17 +105,17 @@ func (cv *CoreView) Display() {
 	if cv.elf != nil {
 		err = cv.displayDisassembly(crashThreadID)
 		if err != nil {
-			logrus.Errorf("Error displaying disassembly: %s", err)
+			slog.Error("Error displaying disassembly", "error", err)
 		}
 	}
 	cv.displayRegisters(crashThreadID)
 	err = cv.displayStackContents(crashThreadID)
 	if err != nil {
-		logrus.Errorf("Error displaying stack contents: %s", err)
+		slog.Error("Error displaying stack contents", "error", err)
 	}
 	err = cv.displayStacktrace(crashThreadID)
 	if err != nil {
-		logrus.Errorf("Error displaying stack trace: %s", err)
+		slog.Error("Error displaying stack trace", "error", err)
 	}
 }
 

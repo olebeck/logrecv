@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"log/slog"
 	"net/netip"
 	"os"
 	"os/exec"
@@ -14,7 +15,6 @@ import (
 	"time"
 
 	"github.com/jlaffaye/ftp"
-	"github.com/sirupsen/logrus"
 )
 
 var (
@@ -41,7 +41,7 @@ func downloadCoredump(remoteIP netip.Addr, titleID string) ([]byte, error) {
 	)
 
 	ftpAddress := fmt.Sprintf("%s:%s", remoteIP.String(), ftpPort)
-	logrus.Infof("Attempting to connect to FTP for coredump title_id=%s", titleID)
+	slog.Info("Attempting to connect to FTP for coredump", "title_id", titleID)
 
 	c, err := ftp.Dial(ftpAddress, ftp.DialWithTimeout(10*time.Second))
 	if err != nil {
@@ -52,7 +52,7 @@ func downloadCoredump(remoteIP netip.Addr, titleID string) ([]byte, error) {
 	if err := c.Login(ftpUser, ftpPass); err != nil {
 		return nil, fmt.Errorf("failed to login to FTP server %s: %w", ftpAddress, err)
 	}
-	logrus.Info("Successfully logged in to FTP")
+	slog.Info("Successfully logged in to FTP")
 
 	if err := c.ChangeDir("ux0:data/"); err != nil {
 		return nil, err
@@ -132,7 +132,7 @@ func downloadCoredump(remoteIP netip.Addr, titleID string) ([]byte, error) {
 		psp2CoreFile = newestEntry.Name
 	}
 
-	logrus.Infof("Downloading %s", psp2CoreFile)
+	slog.Info("Downloading", "file", psp2CoreFile)
 	resp, err := c.Retr(psp2CoreFile)
 	if err != nil {
 		return nil, err
@@ -188,7 +188,7 @@ func cleanupCoredumpStates() {
 
 func handleLogLineCoredumpStart(remoteIP netip.Addr, startMatch []string) {
 	titleID := startMatch[1]
-	logrus.Infof("Coredump start detected ip=%s title_id=%s", remoteIP.String(), titleID)
+	slog.Info("Coredump start detected", "addr", remoteIP.String(), "title_id", titleID)
 
 	coredumpStatesMu.Lock()
 	coredumpStates[remoteIP] = coredumpState{
@@ -199,8 +199,8 @@ func handleLogLineCoredumpStart(remoteIP netip.Addr, startMatch []string) {
 }
 
 func handleLogLineCoredumpDone(remoteIP netip.Addr) {
-	log := logrus.WithField("ip", remoteIP.String())
-	log.Infof("Coredump done detected")
+	log := slog.With("addr", remoteIP.String())
+	log.Info("Coredump done detected")
 
 	coredumpStatesMu.Lock()
 	state, found := coredumpStates[remoteIP]
@@ -208,13 +208,13 @@ func handleLogLineCoredumpDone(remoteIP netip.Addr) {
 	coredumpStatesMu.Unlock()
 
 	if found {
-		log := log.WithField("title_id", state.TitleID)
+		log := log.With("title_id", state.TitleID)
 		if time.Since(state.Updated) <= coredumpDoneGracePeriod {
 			log.Info("Processing coredump")
 			go func(ip netip.Addr, titleID string) {
 				err := handleCoredumpDone(ip, titleID)
 				if err != nil {
-					log.WithError(err).Error("failed to handle coredump")
+					log.Error("failed to handle coredump", "error", err)
 				}
 			}(remoteIP, state.TitleID)
 		} else {

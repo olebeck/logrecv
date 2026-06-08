@@ -1,11 +1,10 @@
 package main
 
 import (
+	"log/slog"
 	"logrecv/coredump"
 	"logrecv/coreview"
 	"os"
-
-	"github.com/sirupsen/logrus"
 )
 
 func readCoredump(filename string) (*coredump.Coredump, error) {
@@ -19,7 +18,7 @@ func readCoredump(filename string) (*coredump.Coredump, error) {
 func main() {
 	args := os.Args[1:]
 	if len(args) != 2 {
-		logrus.Error("wrong number of arguments")
+		slog.Error("wrong number of arguments")
 		return
 	}
 	elfFilename := args[0]
@@ -27,12 +26,14 @@ func main() {
 
 	cd, err := readCoredump(coredumpFilename)
 	if err != nil {
-		logrus.Fatal(err)
+		slog.Error("readCoredump", "error", err)
+		os.Exit(1)
 	}
 
 	cv, err := coreview.NewCoreView(cd, elfFilename)
 	if err != nil {
-		logrus.Fatal(err)
+		slog.Error("NewCoreView", "error", err)
+		os.Exit(1)
 	}
 	defer cv.Close()
 	cv.Display()

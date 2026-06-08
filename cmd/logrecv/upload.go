@@ -3,13 +3,12 @@ package main
 import (
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
-
-	"github.com/sirupsen/logrus"
 )
 
 var titleIDRegex = regexp.MustCompile(`^[a-zA-Z0-9]{9}$`)
@@ -23,7 +22,7 @@ func elfUploadHandler(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
 	const prefix = "/elfs/"
 	const suffix = ".elf"
-	log := logrus.WithField("path", path)
+	log := slog.With("path", path)
 
 	if !strings.HasPrefix(path, prefix) || !strings.HasSuffix(path, suffix) {
 		http.Error(w, fmt.Sprintf("Invalid path format. Expected %s{titleid}%s", prefix, suffix), http.StatusBadRequest)
@@ -44,7 +43,7 @@ func elfUploadHandler(w http.ResponseWriter, r *http.Request) {
 
 	saveDir := "./elfs/"
 	if err := os.MkdirAll(saveDir, 0755); err != nil {
-		log.WithError(err).Error("Failed to create ELF save directory")
+		log.Error("Failed to create ELF save directory", "error", err)
 		http.Error(w, "Internal server error: could not create save directory", http.StatusInternalServerError)
 		return
 	}
@@ -54,7 +53,7 @@ func elfUploadHandler(w http.ResponseWriter, r *http.Request) {
 
 	outFile, err := os.Create(localSavePath)
 	if err != nil {
-		log.WithError(err).Error("Failed to create local file for ELF upload")
+		log.Error("Failed to create local file for ELF upload", "error", err)
 		http.Error(w, "Internal server error: could not create file", http.StatusInternalServerError)
 		return
 	}
@@ -62,12 +61,12 @@ func elfUploadHandler(w http.ResponseWriter, r *http.Request) {
 
 	written, err := io.Copy(outFile, r.Body)
 	if err != nil {
-		log.WithError(err).Error("Failed to save ELF upload data")
+		log.Error("Failed to save ELF upload data", "error", err)
 		http.Error(w, "Internal server error: could not save file data", http.StatusInternalServerError)
 		return
 	}
 
-	log.WithField("bytes", written).Info("Successfully uploaded and saved ELF file")
+	log.Info("Successfully uploaded and saved ELF file", "bytes", written)
 
 	w.WriteHeader(http.StatusCreated)
 	fmt.Fprintf(w, "Successfully uploaded ELF for TitleID %s\n", titleid)
