@@ -8,3 +8,8 @@ __debug_bin*
 *.elf
 /logrecv
 /logrecv.exe
+/logrecv-client
+/logrecv-client.exe
+/db.yml
+/*.spsp2dmp
+/bin

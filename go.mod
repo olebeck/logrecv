@@ -1,10 +1,9 @@
 module logrecv
 
-go 1.24.2
+go 1.27.4
 
 require (
 	github.com/ghostiam/binstruct v1.4.0
-	github.com/gorilla/websocket v1.5.3
 	github.com/ianlancetaylor/demangle v0.0.0-20250628045327-2d64ad6b7ec5
 	github.com/jlaffaye/ftp v0.2.0
 	gopkg.in/yaml.v3 v3.0.1

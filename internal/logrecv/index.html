@@ -75,57 +75,36 @@
         const ansi_up = new AnsiUp({ use_classes: true });
         const outputElement = document.getElementById('terminal-output');
 
-        const wsUrl = `ws://${location.host}/ws`;
-
-        let ws;
-
-        const onopen = function() {
-            outputElement.innerHTML += '<span class="ansi-bright-green">Connected</span><br>';
-            outputElement.scrollTop = outputElement.scrollHeight;
-        };
-
-        const onmessage = function(event) {
-            const data = JSON.parse(event.data);
-            const id = data.Source.split(".").at(-1);
-            const html = ansi_up.ansi_to_html(`\x1b[38;5;${id}m${id.padStart(3)}\x1b[0m: ${data.Text}\n`);
+        function appendHtml(html) {
             outputElement.innerHTML += html;
             outputElement.scrollTop = outputElement.scrollHeight;
-        };
-
-        const onclose = function(event) {
-            const reason = event.reason || 'No reason given.';
-            const code = event.code;
-            outputElement.innerHTML += `<span class="ansi-bright-red">closed. Code: ${code}, Reason: ${reason}</span><br>`;
-            outputElement.scrollTop = outputElement.scrollHeight;
-            setTimeout(connectWebSocket, 5000);
-        };
-
-        const onerror = function(error) {
-            const errorMessage = document.createElement('div');
-            outputElement.innerHTML += '<span class="ansi-bright-red">WebSocket Error.</span><br>';
-            outputElement.scrollTop = outputElement.scrollHeight;
-            ws.close();
-        };
-
-        function connectWebSocket() {
-            outputElement.scrollTop = outputElement.scrollHeight;
-
-            try {
-                ws = new WebSocket(wsUrl);
-            } catch (error) {
-                outputElement.innerHTML += `<span class="ansi-bright-red">Failed to Connect</span><br>`;
-                outputElement.scrollTop = outputElement.scrollHeight;
-                setTimeout(connectWebSocket, 5000);
-                return;
-            }
-
-            ws.onclose = onclose;
-            ws.onerror = onerror;
-            ws.onmessage = onmessage;
-            ws.onopen = onopen;
         }
 
-        document.addEventListener('DOMContentLoaded', connectWebSocket);
+        function connectEvents() {
+            const source = new EventSource('/events');
+            let connected = false;
+
+            source.onopen = function() {
+                connected = true;
+                appendHtml('<span class="ansi-bright-green">Connected</span><br>');
+            };
+
+            source.addEventListener('log', function(event) {
+                const data = JSON.parse(event.data);
+                const id = data.Source.split(".").at(-1);
+                const html = ansi_up.ansi_to_html(`\x1b[38;5;${id}m${id.padStart(3)}\x1b[0m: ${data.Text}\n`);
+                appendHtml(html);
+            });
+
+            source.onerror = function() {
+                if (connected) {
+                    connected = false;
+                    appendHtml('<span class="ansi-bright-red">Disconnected. Reconnecting...</span><br>');
+                }
+            };
+        }
+
+        document.addEventListener('DOMContentLoaded', connectEvents);
     </script>
 </body>
 </html>

@@ -1,4 +1,4 @@
-package main
+package logrecv
 
 import (
 	"net/netip"
