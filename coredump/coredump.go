@@ -76,24 +76,27 @@ func ParseCoredump(data []byte) (*Coredump, error) {
 		return nil, err
 	}
 
-	cd := Coredump{}
-	var notes []elfNote
+	var notes []Note
 	for _, prog := range elfFile.Progs {
 		if prog.Type == elf.PT_NOTE {
-			notes2, err := readNotesFromSegment(prog)
+			notes2, err := readNotesFromSegment(io.NewSectionReader(prog, 0, int64(prog.Filesz)))
 			if err != nil {
 				return nil, err
 			}
 			notes = append(notes, notes2...)
 		}
-		if prog.Type == elf.PT_LOAD {
-			cd.Segments = append(cd.Segments, prog)
-		}
-	}
-	if notes == nil {
-		return nil, fmt.Errorf("no notes")
 	}
 
+	var segments []*elf.Prog
+	for _, prog := range elfFile.Progs {
+		if prog.Type == elf.PT_LOAD {
+			segments = append(segments, prog)
+		}
+	}
+
+	cd := Coredump{
+		Segments: segments,
+	}
 	for _, note := range notes {
 		field := noteIdToField(&cd, note.Type)
 		if field == nil {
@@ -121,11 +124,11 @@ func (cd *Coredump) GetCrashThreadID() (uint32, error) {
 	}
 	return 0, fmt.Errorf("no crashed threads")
 }
-func (cd *Coredump) ReadAt(p []byte, off int64) (n int, err error) {
+func (cd *Coredump) ReadVaddr(p []byte, off uint32) (n int, err error) {
 	for _, prog := range cd.Segments {
-		if off >= int64(prog.Vaddr) && off < int64(prog.Vaddr+prog.Memsz) {
-			offsetInSegment := off - int64(prog.Vaddr)
-			return prog.ReadAt(p, offsetInSegment)
+		if off >= uint32(prog.Vaddr) && off < uint32(prog.Vaddr+prog.Memsz) {
+			offsetInSegment := off - uint32(prog.Vaddr)
+			return prog.ReadAt(p, int64(offsetInSegment))
 		}
 	}
 	return 0, io.ErrUnexpectedEOF
@@ -152,20 +155,20 @@ func (cd *Coredump) IsInMainExecutable(vaddr uint32) bool {
 	return false
 }
 
-func (cd *Coredump) GetThreadByID(threadID uint32) *ThreadInfoThread {
+func (cd *Coredump) GetThreadByID(threadID uint32) (*ThreadInfoThread, bool) {
 	for _, thread := range cd.ThreadInfo.Records {
 		if thread.ThreadID == threadID {
-			return &thread
+			return &thread, true
 		}
 	}
-	return nil
+	return nil, false
 }
 
-func (cd *Coredump) GetThreadRegisters(threadID uint32) *ThreadRegInfoInfo {
+func (cd *Coredump) GetThreadRegisters(threadID uint32) (*ThreadRegInfoInfo, bool) {
 	for _, threadReg := range cd.ThreadRegInfo.Records {
 		if threadReg.ThreadID == threadID {
-			return &threadReg
+			return &threadReg, true
 		}
 	}
-	return nil
+	return nil, false
 }

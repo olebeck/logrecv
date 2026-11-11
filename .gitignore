@@ -7,3 +7,4 @@ keylog.txt*
 __debug_bin*
 *.elf
 /logrecv
+/logrecv.exe

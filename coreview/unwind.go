@@ -3,9 +3,12 @@ package coreview
 import (
 	"encoding/binary"
 	"fmt"
-	"io"
 	"logrecv/coredump"
 )
+
+type Memory interface {
+	ReadVaddr(buf []byte, off uint32) (int, error)
+}
 
 type Frame struct {
 	PC uint32
@@ -53,7 +56,7 @@ type exidxEntry struct {
 	descriptor uint32
 }
 
-func findExidx(pc uint32, exidxStart, exidxEnd uint32, memory io.ReaderAt) (exidxEntry, error) {
+func findExidx(pc uint32, exidxStart, exidxEnd uint32, memory Memory) (exidxEntry, error) {
 	const entrySize = 8
 	exidxSize := exidxEnd - exidxStart
 	if exidxSize == 0 || exidxSize%entrySize != 0 {
@@ -69,11 +72,11 @@ func findExidx(pc uint32, exidxStart, exidxEnd uint32, memory io.ReaderAt) (exid
 
 	for low <= high {
 		mid := low + (high-low)/2
-		offset := int64(mid * entrySize)
+		offset := uint32(mid * entrySize)
 		entryAddr := exidxStart + uint32(offset)
 
 		var buf [8]byte
-		n, err := memory.ReadAt(buf[:], int64(exidxStart)+offset)
+		n, err := memory.ReadVaddr(buf[:], exidxStart+offset)
 		if err != nil || n != 8 {
 			return exidxEntry{}, fmt.Errorf("failed to read exidx PC offset at index %d: %w", mid, err)
 		}
@@ -106,7 +109,7 @@ func findExidx(pc uint32, exidxStart, exidxEnd uint32, memory io.ReaderAt) (exid
 func applyExtabUnwind(
 	oldPC, oldSP uint32,
 	descriptor uint32,
-	memory io.ReaderAt,
+	memory *coredump.Coredump,
 ) (newPC, newSP uint32, err error) {
 	compact := (descriptor & 0x80000000) != 0
 	if compact {
@@ -114,11 +117,11 @@ func applyExtabUnwind(
 	}
 
 	offset := int32(descriptor<<1) >> 1
-	extabAddr := int64(oldPC) + int64(offset)
+	extabAddr := oldPC + uint32(offset)
 
 	var extabEntry uint32
 	buf := make([]byte, 4)
-	if _, err := memory.ReadAt(buf, extabAddr); err != nil {
+	if _, err := memory.ReadVaddr(buf, extabAddr); err != nil {
 		return 0, 0, fmt.Errorf("failed to read extab entry: %w", err)
 	}
 	extabEntry = binary.LittleEndian.Uint32(buf)
@@ -159,9 +162,9 @@ func applyCompactUnwind(oldPC, oldSP uint32, descriptor uint32) (newPC, newSP ui
 	}
 }
 
-func applyGenericUnwind(oldPC, oldSP uint32, dataAddr int64, memory io.ReaderAt) (newPC, newSP uint32, err error) {
+func applyGenericUnwind(oldPC, oldSP uint32, dataAddr uint32, memory Memory) (newPC, newSP uint32, err error) {
 	buf := make([]byte, 64)
-	if _, err := memory.ReadAt(buf, dataAddr); err != nil {
+	if _, err := memory.ReadVaddr(buf, dataAddr); err != nil {
 		return 0, 0, fmt.Errorf("failed to read unwind opcodes: %w", err)
 	}
 	return executeUnwindOpcodes(buf, oldSP)

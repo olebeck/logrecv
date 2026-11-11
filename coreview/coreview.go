@@ -131,7 +131,11 @@ func (cv *CoreView) displayThreads() {
 
 func (cv *CoreView) displayRegisters(threadID uint32) {
 	fmt.Println("\n=== REGISTERS ===")
-	registers := cv.cd.GetThreadRegisters(threadID)
+	registers, ok := cv.cd.GetThreadRegisters(threadID)
+	if !ok {
+		fmt.Println("thread not found")
+		return
+	}
 
 	type regVal struct {
 		Name  string
@@ -164,12 +168,16 @@ func (cv *CoreView) displayRegisters(threadID uint32) {
 }
 
 func (cv *CoreView) displayStackContents(threadID uint32) error {
-	regs := cv.cd.GetThreadRegisters(threadID)
 	fmt.Println("\n=== STACK CONTENTS ===")
+	regs, ok := cv.cd.GetThreadRegisters(threadID)
+	if !ok {
+		fmt.Println("thread not found")
+		return nil
+	}
 	fmt.Printf("Stack Pointer: 0x%08x\n", regs.SP)
 
 	var stackData = make([]byte, 256)
-	_, err := cv.cd.ReadAt(stackData, int64(regs.SP))
+	_, err := cv.cd.ReadVaddr(stackData, regs.SP)
 	if err != nil {
 		return err
 	}
@@ -211,7 +219,11 @@ func (cv *CoreView) displayStackContents(threadID uint32) error {
 
 func (cv *CoreView) displayStacktrace(threadID uint32) error {
 	fmt.Println("\n=== STACK TRACE ===")
-	regs := cv.cd.GetThreadRegisters(threadID)
+	regs, ok := cv.cd.GetThreadRegisters(threadID)
+	if !ok {
+		fmt.Println("thread not found")
+		return nil
+	}
 
 	frames, err := UnwindStack(regs.PC, regs.SP, cv.cd)
 	if err != nil {
@@ -232,9 +244,13 @@ func (cv *CoreView) displayStacktrace(threadID uint32) error {
 }
 
 func (cv *CoreView) displayDisassembly(threadID uint32) error {
-	regs := cv.cd.GetThreadRegisters(threadID)
-
 	fmt.Println("\n=== PC DISASSEMBLY ===")
+	regs, ok := cv.cd.GetThreadRegisters(threadID)
+	if !ok {
+		fmt.Println("thread not found")
+		return nil
+	}
+
 	fmt.Printf("PC: 0x%08x %s\n", regs.PC, cv.getFunctionName(regs.PC))
 	if err := cv.showDisassembly(regs.PC, "PC", ""); err != nil {
 		return err

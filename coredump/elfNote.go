@@ -2,63 +2,53 @@ package coredump
 
 import (
 	"bytes"
-	"debug/elf"
 	"encoding/binary"
 	"io"
 )
 
-type elfNote struct {
+type Note struct {
 	Name string
 	Type uint32
 	Data []byte
 }
 
-func readNotesFromSegment(prog *elf.Prog) (out []elfNote, err error) {
-	reader := io.NewSectionReader(prog, 0, int64(prog.Filesz))
-
-	var nNamesz uint32
-	var nDescsz uint32
-	var nType uint32
-
-	for {
-		if err := binary.Read(reader, binary.LittleEndian, &nNamesz); err != nil {
-			if err == io.EOF {
-				break
-			}
-			return nil, err
-		}
-		if err := binary.Read(reader, binary.LittleEndian, &nDescsz); err != nil {
-			return nil, err
-		}
-		if err := binary.Read(reader, binary.LittleEndian, &nType); err != nil {
-			return nil, err
-		}
-
-		name := make([]byte, nNamesz)
-		if _, err := io.ReadFull(reader, name); err != nil {
-			return nil, err
-		}
-
-		namePadding := (4 - (nNamesz % 4)) % 4
-		if namePadding > 0 {
-			reader.Seek(int64(namePadding), 1)
-		}
-
-		value := make([]byte, nDescsz)
-		if _, err := io.ReadFull(reader, value); err != nil {
-			return nil, err
-		}
-
-		descPadding := (4 - (nDescsz % 4)) % 4
-		if descPadding > 0 {
-			reader.Seek(int64(descPadding), 1)
-		}
-
-		nameStr := string(name)
-		if nullIndex := bytes.IndexByte(name, 0x00); nullIndex != -1 {
-			nameStr = string(name[:nullIndex])
-		}
-		out = append(out, elfNote{Name: nameStr, Type: nType, Data: value})
+func readNotesFromSegment(r io.Reader) ([]Note, error) {
+	type NoteHeader struct {
+		NameSize uint32
+		DescSize uint32
+		Type     uint32
 	}
-	return
+	var notes []Note
+	for {
+		var head NoteHeader
+		err := binary.Read(r, binary.LittleEndian, &head)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		var name = make([]byte, head.NameSize)
+		_, err = io.ReadFull(r, name)
+		if err != nil {
+			return nil, err
+		}
+		io.CopyN(io.Discard, r, int64(4-(head.NameSize%4))%4)
+
+		var desc = make([]byte, head.DescSize)
+		n, err := io.ReadFull(r, desc)
+		if err != nil {
+			return nil, err
+		}
+		_ = n
+		io.CopyN(io.Discard, r, int64(4-head.DescSize%4)%4)
+
+		name, _, _ = bytes.Cut(name, []byte{0})
+		notes = append(notes, Note{
+			Name: string(name),
+			Type: head.Type,
+			Data: desc,
+		})
+	}
+	return notes, nil
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"log/slog"
 	"logrecv/coredump"
 	"logrecv/coreview"
@@ -16,13 +17,15 @@ func readCoredump(filename string) (*coredump.Coredump, error) {
 }
 
 func main() {
-	args := os.Args[1:]
-	if len(args) != 2 {
-		slog.Error("wrong number of arguments")
-		return
+	flag.Parse()
+
+	coredumpFilename := flag.Arg(0)
+	elfFilename := flag.Arg(1)
+
+	if coredumpFilename == "" {
+		slog.Error("missing coredumpFilename")
+		os.Exit(1)
 	}
-	elfFilename := args[0]
-	coredumpFilename := args[1]
 
 	cd, err := readCoredump(coredumpFilename)
 	if err != nil {
