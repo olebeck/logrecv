@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"regexp"
+	"slices"
 	"sync"
 )
 
@@ -14,6 +15,7 @@ type keylogWriter struct {
 	mu   sync.Mutex
 	file *os.File
 	hub  *Hub[string]
+	last []string
 }
 
 func newKeylogWriter(filename string, hub *Hub[string]) (*keylogWriter, error) {
@@ -49,6 +51,14 @@ func (k *keylogWriter) Handle(ll LogLine) bool {
 
 	k.mu.Lock()
 	defer k.mu.Unlock()
+
+	if slices.Contains(k.last, ll.Text) {
+		return true
+	}
+	k.last = append(k.last, ll.Text)
+	if len(k.last) > 10 {
+		k.last = k.last[1:]
+	}
 
 	if k.file != nil {
 		if _, err := fmt.Fprintln(k.file, ll.Text); err != nil {
